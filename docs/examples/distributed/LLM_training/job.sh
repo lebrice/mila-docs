@@ -30,6 +30,8 @@ ACCELERATE_CONFIG=${ACCELERATE_CONFIG:="configs/ds_level2.yaml"}
 MODEL_NAME=${MODEL_NAME:="facebook/opt-2.7b"}
 PER_GPU_BATCH_SIZE=${PER_GPU_BATCH_SIZE:="1"}
 
+# TODO: Explicitly require the WANDB_API_KEY variable to have been set.
+export HF_HOME="$SCRATCH/cache/huggingface"
 export HF_DATASETS_CACHE=$SCRATCH/cache/huggingface/datasets
 export HUGGINGFACE_HUB_CACHE=$SCRATCH/cache/huggingface/hub
 export HF_DATASETS_OFFLINE=1

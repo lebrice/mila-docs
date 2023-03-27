@@ -20,14 +20,20 @@ module --quiet purge
 # See https://docs.mila.quebec/Userguide.html#conda for more information.
 #module load anaconda/3
 module load cuda/11.7
+module load httpproxy
 
 # NOTE: Use a temporary directory if you want to re-create the environment from scratch each time.
 # CONDA_ENV_PREFIX=$SLURM_TMPDIR/env
-CONDA_ENV_PREFIX=$SCRATCH/conda/llm_training
+CONDA_ENV_PREFIX=$SCRATCH/conda/llm_training_full_conda
 
 ACCELERATE_CONFIG=${ACCELERATE_CONFIG:="configs/ds_level2.yaml"}
 MODEL_NAME=${MODEL_NAME:="facebook/opt-2.7b"}
 PER_GPU_BATCH_SIZE=${PER_GPU_BATCH_SIZE:="1"}
+
+export HF_DATASETS_CACHE=$SCRATCH/cache/huggingface/datasets
+export HUGGINGFACE_HUB_CACHE=$SCRATCH/cache/huggingface/hub
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 
 
 if [ ! -d $CONDA_ENV_PREFIX ]; then
@@ -42,11 +48,12 @@ if [ ! -d $CONDA_ENV_PREFIX ]; then
     # Install other conda packages:
     # conda install -y rich -c conda-forge
     # Install other pip packages:
-    conda install -y transformers datasets evaluate accelerate deepspeed rich simple-parsing -c conda-forge
+    conda install -y transformers datasets evaluate accelerate rich simple-parsing wandb -c conda-forge
+    pip install deepspeed==0.8.3
     #pip install transformers datasets evaluate accelerate deepspeed rich simple-parsing
 else
-    source $CONDA_ENV_PREFIX/bin/activate
-    #conda activate $CONDA_ENV_PREFIX
+    source ~/miniconda3/bin/activate
+    conda activate $CONDA_ENV_PREFIX
 fi
 
 set -x  # print commands.

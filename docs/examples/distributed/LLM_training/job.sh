@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=12
-#SBATCH --gpus-per-task=a100:2
-#SBATCH --mem=512G
+#SBATCH --cpus-per-task=24
+#SBATCH --gpus-per-task=a100:4
+#SBATCH --mem=450G
 #SBATCH --time=01:00:00
 #SBATCH --job-name=llm_training
 #SBATCH --output=logs/slurm-%j.out
@@ -18,7 +18,7 @@ echo "Hostname: $(hostname)"
 module --quiet purge
 # This example uses Conda to manage package dependencies.
 # See https://docs.mila.quebec/Userguide.html#conda for more information.
-module load anaconda/3
+#module load anaconda/3
 module load cuda/11.7
 
 # NOTE: Use a temporary directory if you want to re-create the environment from scratch each time.
@@ -28,8 +28,6 @@ CONDA_ENV_PREFIX=$SCRATCH/conda/llm_training
 ACCELERATE_CONFIG=${ACCELERATE_CONFIG:="configs/ds_level2.yaml"}
 MODEL_NAME=${MODEL_NAME:="facebook/opt-2.7b"}
 PER_GPU_BATCH_SIZE=${PER_GPU_BATCH_SIZE:="1"}
-OUTPUT_DIR=${OUTPUT_DIR:=$SCRATCH/logs/llm_training/$SLURM_JOB_ID}
-mkdir -p $OUTPUT_DIR
 
 
 if [ ! -d $CONDA_ENV_PREFIX ]; then
@@ -44,15 +42,20 @@ if [ ! -d $CONDA_ENV_PREFIX ]; then
     # Install other conda packages:
     # conda install -y rich -c conda-forge
     # Install other pip packages:
-    pip install transformers datasets evaluate accelerate deepspeed rich simple-parsing
+    conda install -y transformers datasets evaluate accelerate deepspeed rich simple-parsing -c conda-forge
+    #pip install transformers datasets evaluate accelerate deepspeed rich simple-parsing
 else
-    conda activate $CONDA_ENV_PREFIX
+    source $CONDA_ENV_PREFIX/bin/activate
+    #conda activate $CONDA_ENV_PREFIX
 fi
-
 
 set -x  # print commands.
 
+OUTPUT_DIR=${OUTPUT_DIR:=$SCRATCH/logs/llm_training/$SLURM_JOB_ID}
+mkdir -p $OUTPUT_DIR
+
 conda env export > $OUTPUT_DIR/environment.yml
+
 
 # Get a unique port for this job based on the job ID
 export MASTER_PORT=${MASTER_PORT:=$(expr 10000 + $(echo -n $SLURM_JOBID | tail -c 4))}

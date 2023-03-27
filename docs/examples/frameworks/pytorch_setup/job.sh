@@ -12,7 +12,8 @@ echo "Hostname: $(hostname)"
 module purge
 # This example uses Conda to manage package dependencies.
 # See https://docs.mila.quebec/Userguide.html#conda for more information.
-module load anaconda/3
+#module load anaconda/3
+module load cuda/11.7
 
 # Creating the environment for the first time:
 # conda create -y -n pytorch python=3.9 pytorch torchvision torchaudio \

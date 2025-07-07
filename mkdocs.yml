@@ -1,0 +1,17 @@
+site_name: Mila Docs
+site_description: Official documentation for the Mila cluster and related resources.
+theme:
+  name: material
+nav:
+  - Home: index.md
+  - Purpose: Purpose.md
+  - User's Guide: Userguide.md
+  - Handbook: Handbook.md
+  - Information: Information.md
+  - Extra Compute: Extra_compute.md
+  - Cluster Theory: Theory_cluster.md
+  - Examples:
+      - Frameworks: examples/frameworks/index.md
+      - Distributed: examples/distributed/index.md
+      - Good Practices: examples/good_practices/index.md
+# Add more navigation items as you convert docs

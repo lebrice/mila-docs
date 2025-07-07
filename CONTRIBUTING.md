@@ -38,24 +38,21 @@ See also: #456, #789
 
 If you would like to contribute directly in the code of the documentation, keep
 the lines width to 80 characters or less. You can attempt to build the docs
-yourself to see if the formating is right:
+yourself to see if the formatting is right:
 
-#### pip installation
+#### Install dependencies (with uv)
 ```console
-python3 -m pip install -r docs/requirements.txt
+uv pip install -r docs/requirements.txt
+uv pip install mkdocs mkdocs-material pre-commit
 pre-commit install
-sphinx-build -b html docs/ docs/_build/
 ```
 
-#### conda installation
+#### Build and serve the documentation
 ```console
-conda env create --file docs/environment.yaml
-conda activate mila-docs
-sphinx-build -b html docs/ docs/_build/
+mkdocs serve
 ```
 
-This will produce the html version of the documentation which you can navigate
-by opening the local file `docs/_build/index.html`.
+This will start a local server (by default at http://127.0.0.1:8000/) where you can preview the documentation live as you edit Markdown files.
 
 If you have any trouble building the docs, don't hesitate to open an issue to
 request help.

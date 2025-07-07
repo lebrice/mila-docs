@@ -35,11 +35,39 @@ repository.
    echo "Date:     $(date)"
    echo "Hostname: $(hostname)"
 
+   # First, in general, it's a good idea to run `uv sync` once before submitting
+   # jobs to ensure that the venv is created and all the dependencies are installed.
+   # On cluster with internet access on compute nodes (Mila cluster), this saves a bit
+   # of GPU compute time at the start of your job since dependencies already be in the cache.
+   # On DRAC or PAICE clusters where you don't have internet access on compute nodes,
+   # if you need packages that are not in the DRAC wheelhouse, you should run `uv sync`
+   # on a login node once before submitting the job, and use `uv run --offline python main.py`
+
+   # On a login / interactive node:
+   # ```
+   # srun --pty --gpus=1 --mem=16G --time=00:10:00 uv sync
+   # ```
+
    uv run python main.py
 
 
-**main.py**
+**pyproject.toml**
 
+.. code:: toml
+
+   [project]
+   name = "pytorch-setup"
+   version = "0.1.0"
+   description = "Add your description here"
+   readme = "README.md"
+   requires-python = ">=3.12"
+   dependencies = [
+       "numpy>=2.3.1",
+       "torch>=2.7.1",
+   ]
+
+
+**main.py**
 
 .. code:: python
 
@@ -68,8 +96,8 @@ repository.
 
 **Running this example**
 
-This assumes that you already created a conda environment named "pytorch". To
-create this environment, we first request resources for an interactive job.
+This assumes that you already installed UV on the cluster you are working on.
+To create this environment, we first request resources for an interactive job.
 Note that we are requesting a GPU for this job, even though we're only going to
 install packages. This is because we want PyTorch to be installed with GPU
 support, and to have all the required libraries.

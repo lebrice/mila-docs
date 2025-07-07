@@ -33,13 +33,23 @@ repository.
     echo "Date:     $(date)"
     echo "Hostname: $(hostname)"
 
-   -uv run python main.py
+   -# First, in general, it's a good idea to run `uv sync` once before submitting
+   -# jobs to ensure that the venv is created and all the dependencies are installed.
+   -# On cluster with internet access on compute nodes (Mila cluster), this saves a bit
+   -# of GPU compute time at the start of your job since dependencies already be in the cache.
+   -# On DRAC or PAICE clusters where you don't have internet access on compute nodes,
+   -# if you need packages that are not in the DRAC wheelhouse, you should run `uv sync`
+   -# on a login node once before submitting the job, and use `uv run --offline python main.py`
    +# Ensure only anaconda/3 module loaded.
    +module --quiet purge
    +# This example uses Conda to manage package dependencies.
    +# See https://docs.mila.quebec/Userguide.html#conda for more information.
    +module load anaconda/3
-   +
+
+   -# On a login / interactive node:
+   -# ```
+   -# srun --pty --gpus=1 --mem=16G --time=00:10:00 uv sync
+   -# ```
    +# Creating the environment for the first time:
    +# conda create -y -n jax_ex -c "nvidia/label/cuda-11.8.0" cuda python=3.9 virtualenv pip
    +# conda activate jax_ex
@@ -48,7 +58,8 @@ repository.
    +# should not install any more packages using `conda install`
    +# pip install --upgrade "jax[cuda11_pip]" \
    +#    -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-   +
+
+   -uv run python main.py
    +# Activate the environment:
    +conda activate jax_ex
    +

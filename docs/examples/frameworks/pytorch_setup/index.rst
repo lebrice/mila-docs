@@ -23,8 +23,13 @@ repository.
     :language: bash
 
 
-**main.py**
+**pyproject.toml**
 
+.. literalinclude:: pyproject.toml
+    :language: toml
+
+
+**main.py**
 
 .. literalinclude:: main.py
     :language: python
@@ -32,8 +37,8 @@ repository.
 
 **Running this example**
 
-This assumes that you already created a conda environment named "pytorch". To
-create this environment, we first request resources for an interactive job.
+This assumes that you already installed UV on the cluster you are working on.
+To create this environment, we first request resources for an interactive job.
 Note that we are requesting a GPU for this job, even though we're only going to
 install packages. This is because we want PyTorch to be installed with GPU
 support, and to have all the required libraries.

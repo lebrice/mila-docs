@@ -13,7 +13,7 @@ repository.
 
 * :ref:`Quick Start`
 * :ref:`Running your code`
-* :ref:`Conda`
+* :ref:`uv`
 
 
 **job.sh**

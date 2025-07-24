@@ -1,0 +1,7 @@
+.vscode
+.venv
+_build
+.idea
+.ruff_cache
+**/__pycache__
+slurm-*.out

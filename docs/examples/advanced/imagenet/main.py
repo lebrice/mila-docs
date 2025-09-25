@@ -8,6 +8,7 @@
 
 # Potential Improvements - to be added as an exercise! 😉
 - Use Automatic Mixed Precision (AMP) to take advantage of the hardware capabilities
+- Use a larger model from HuggingFace or change the dataset from ImageNet to a language dataset from HuggingFace
 - Use FSDP to train a larger model that doesn't fit inside a single GPU
 """
 
@@ -410,10 +411,11 @@ def main():
             dynamic_ncols=True,  # allow window resizing
         )
 
+        epoch_loss = 0.0
         t = time.perf_counter()
         for batch_index, batch in enumerate(
-            # We only create the profiling traces in the first epoch.
-            profile_loop(progress_bar, profiler) if epoch == 0 else progress_bar
+            # We only create the profiling traces in the first two epochs.
+            profile_loop(progress_bar, profiler) if epoch <= 1 else progress_bar
         ):
             # Move the batch to the GPU before we pass it to the model
             batch = tuple(item.to(device) for item in batch)
@@ -422,7 +424,7 @@ def main():
             loss, accuracy, n_samples = training_step(
                 model, x, y, optimizer, is_master=is_master, verbose_logging=args.verbose >= 2
             )
-
+            epoch_loss += loss
             total_updates += 1
             total_num_samples += n_samples
 
@@ -554,8 +556,9 @@ def training_step(
 
     local_loss = F.cross_entropy(logits, y)
 
-    # FIXME: BAD!
-    # logger.debug(f"Local loss: {local_loss.item():.2f}")
+    # BAD, but not as bad as it looks!
+    logger.debug(f"Local loss: {local_loss.item():.2f}")
+    wandb.log({"train/local_loss": local_loss.item()})
 
     optimizer.zero_grad()
     # nn.DistributedDataParallel automatically averages the gradients across devices.

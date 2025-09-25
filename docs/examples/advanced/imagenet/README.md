@@ -17,11 +17,22 @@ ssh mila 'git clone https://github.com/mila-iqia/mila-docs --branch debugging_pr
 mila code mila-docs/docs/examples/advanced/imagenet --alloc --ntasks=2 --nodes=1-2 --gpus-per-task=l40s:1 --cpus-per-task=4 --mem-per-gpu=24G --time=02:59:00 --partition=main
 ```
 
+In the VSCode terminal, run this:
+
+```bash
+uv sync
+```
+
+In another terminal, run this:
+
+```bash
+uvx --with=torch-tb-profiler tensorboard --logdir $SCRATCH/checkpoints
+```
+
 
 ## TODOs
 
-
-- [ ] Figure out why the logging to wandb is not working correctly! Why is it logging only once?
-- [ ] This is causing a CUDA OOM error after a few steps, why?
+- [ ] This is crashing with a CUDA OOM error after a few steps, why?
+- [ ] Figure out why the logging to wandb is not working correctly! Why is it logging the loss only once?
 
 

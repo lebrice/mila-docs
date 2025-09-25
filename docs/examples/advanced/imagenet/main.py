@@ -122,7 +122,7 @@ class DummyModel(nn.Module):
 
 
 models: dict[str, Callable[..., nn.Module]] = {
-    "debug_model": DummyModel,
+    "dummy": DummyModel,
     "resnet18": torchvision.models.resnet18,
     "resnet34": torchvision.models.resnet34,
     "resnet50": torchvision.models.resnet50,
@@ -160,6 +160,13 @@ class Args:
     """If true, use torchvision.datasets.FakeData instead of ImageNet.
 
     Useful for debugging.
+    """
+
+    limit_train_samples: int = 0
+    """ If > 0, limit the number of training samples to this value.
+
+    This can be very useful to debug the training loop, checkpointing, and validation, or to check that
+    the model can overfit on a small number of samples.
     """
 
     num_workers: int = int(os.environ.get("SLURM_CPUS_PER_TASK", len(os.sched_getaffinity(0))))
@@ -287,6 +294,13 @@ def main():
         val_split_seed=args.val_seed,
         use_fake_data=args.use_fake_data,
     )
+    # IDEA: Use a smaller subset of the dataset for faster debugging of the checkpointing / validation loop or
+    # to test if the model can overfit on a small number of samples.
+    if args.limit_train_samples:
+        train_dataset = torch.utils.data.Subset(
+            train_dataset, list(range(args.limit_train_samples))
+        )
+
     # Restricts data loading to a subset of the dataset exclusive to the current process
     train_sampler = DistributedSampler(
         dataset=train_dataset, shuffle=True, num_replicas=WORLD_SIZE, rank=RANK, seed=args.seed
@@ -424,6 +438,7 @@ def main():
             loss, accuracy, n_samples = training_step(
                 model, x, y, optimizer, is_master=is_master, verbose_logging=args.verbose >= 2
             )
+
             epoch_loss += loss
             total_updates += 1
             total_num_samples += n_samples
@@ -434,6 +449,7 @@ def main():
             samples_per_sec = n_samples / dt
             t = new_t
 
+            # BUG: This condition doesn't seem to work properly!
             if is_master and (batch_index == 0 or ((batch_index + 1) % args.logging_interval) == 0):
                 # update the progress bar text.
                 _loss = loss.item()
@@ -442,7 +458,6 @@ def main():
                     loss=f"{_loss:.3f}",
                     accuracy=f"{_accuracy:.2%}",
                 )
-                # TODO: Could be interesting to also log the local loss / accuracy values on all workers.
                 wandb.log(
                     {
                         "train/loss": _loss,
@@ -554,55 +569,45 @@ def training_step(
     # Forward pass
     logits: Tensor = model(x)
 
-    local_loss = F.cross_entropy(logits, y)
-
-    # BAD, but not as bad as it looks!
-    logger.debug(f"Local loss: {local_loss.item():.2f}")
-    wandb.log({"train/local_loss": local_loss.item()})
+    local_loss = F.cross_entropy(logits, y, reduction="mean")
+    # FIXME: Causes a sync in the middle of the training step! (Not as large an impact as one might expect, maybe 1-2%)
+    logger.debug(f"Local average loss: {local_loss.item():.2f}")
 
     optimizer.zero_grad()
     # nn.DistributedDataParallel automatically averages the gradients across devices.
-    local_loss.backward()
+    local_loss.backward(retain_graph=True)  # BUG: This causes cuda OOM issues!
     optimizer.step()
 
-    # Calculate some metrics:
+    # Calculate some metrics
 
-    # We could also use torchmetrics instead of calculating metrics ourselves, but then
-    # we wouldn't get to learn how to use the communication primitives!
-
-    # local metrics
+    # local metrics calculated with the tensors on the current GPU.
     local_n_correct_predictions = logits.detach().argmax(-1).eq(y).sum()
-    local_n_samples = logits.shape[0] * torch.ones(1, device=local_loss.device, dtype=torch.int32)
+    local_n_samples = logits.shape[0]
     local_accuracy = local_n_correct_predictions / local_n_samples
 
-    # "global" metrics: calculated with the results from all workers
+    # Global metrics calculated with the results from all workers
     # Creating new tensors to hold the "global" values, but this isn't required.
     # Reduce the local metrics across all workers, sending the result to rank 0.
-
-    n_correct_predictions = local_n_correct_predictions.clone()
-    n_samples = local_n_samples.clone()
-    loss = local_loss.clone()
-
-    torch.distributed.reduce(loss, dst=0, op=ReduceOp.AVG)
     # Summing n_correct and n_samples to get accuracy is resilient to
     # workers having different number of samples.
     # This could happen if the number of batches is not divisible by the number of batches
     # and if the distributed sampler is not set to drop the last incomplete batch.
+    n_correct_predictions = local_n_correct_predictions.clone()
+    n_samples = local_n_samples * torch.ones(1, device=local_loss.device, dtype=torch.int32)
+    loss = local_loss.clone().detach()
+
+    torch.distributed.reduce(loss, dst=0, op=ReduceOp.AVG)
     torch.distributed.reduce(n_correct_predictions, dst=0, op=ReduceOp.SUM)
     torch.distributed.reduce(n_samples, dst=0, op=ReduceOp.SUM)
     accuracy = n_correct_predictions / n_samples
 
-    if WORLD_SIZE > 1 and verbose_logging:
-        logger.debug(f"(local) Loss: {local_loss.item():.2f} Accuracy: {local_accuracy.item():.2%}")
-    if is_master and verbose_logging:  # Otherwise this would log the same values on every worker.
-        logger.debug(
-            ("Average" if WORLD_SIZE > 1 else "")
-            + f"Loss: {loss.item():.2f} Accuracy: {accuracy.item():.2%}"
-        )
+    logger.debug(f"(local) Loss: {local_loss.item():.2f} Accuracy: {local_accuracy.item():.2%}")
+    logger.debug(f"Average Loss: {loss.item():.2f} Accuracy: {accuracy.item():.2%}")
     return loss, accuracy, n_samples
 
 
-@torch.no_grad()
+# BUG: Missing the torch.no_grad() here leads to an OOM during evaluation!
+# @torch.no_grad()
 def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.device):
     model.eval()
 
@@ -626,7 +631,7 @@ def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.devi
         x, y = batch
 
         logits: Tensor = model(x)
-        loss = F.cross_entropy(logits, y)
+        loss = F.cross_entropy(logits, y, reduction="sum")
 
         batch_n_samples = x.shape[0]
         batch_correct_predictions = logits.argmax(-1).eq(y).sum()
@@ -634,8 +639,7 @@ def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.devi
         epoch_loss += loss
         num_samples += batch_n_samples
         correct_predictions += batch_correct_predictions
-    # NOTE: Here we only reduce after iteration over the entire dataset, which is more efficient
-    # but wouldn't work if the model is too large to fit on a single GPU.
+    # Here we only need to reduce metrics once, after iterating over the entire dataset.
     torch.distributed.reduce(epoch_loss, dst=0, op=ReduceOp.SUM)
     torch.distributed.reduce(num_samples, dst=0, op=ReduceOp.SUM)
     torch.distributed.reduce(correct_predictions, dst=0, op=ReduceOp.SUM)
@@ -722,19 +726,6 @@ def make_datasets(
     train_dataset = ImageNet(root=path, transform=train_transforms, split="train")
     valid_dataset = ImageNet(root=path, transform=test_transforms, split="train")
     test_dataset = ImageNet(root=path, transform=test_transforms, split="val")
-
-    # TODO: Add an option to limit the number of total samples in the training dataset,
-    # to make it easy to check whether a randomly initialized model can overfit to a few batches.
-    # if limit_num_samples:
-    #     train_dataset = torch.utils.data.Subset(
-    #         train_dataset, list(range(limit_num_samples))
-    #     )
-    #     valid_dataset = torch.utils.data.Subset(
-    #         valid_dataset, list(range(limit_num_samples))
-    #     )
-    #     test_dataset = torch.utils.data.Subset(
-    #         test_dataset, list(range(limit_num_samples))
-    #     )
 
     # Split the training dataset into a training and validation set, based on a stratified split.
     # This is important to have a balanced distribution of classes in both sets.

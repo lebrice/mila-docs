@@ -93,7 +93,7 @@ else:
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format=f"[{RANK + 1}/{WORLD_SIZE}] %(name)s - %(message)s ",
+    format=f"[{RANK + 1}/{WORLD_SIZE}] - %(message)s ",
     handlers=[rich.logging.RichHandler(markup=True)],
     force=True,
 )
@@ -123,7 +123,7 @@ class DummyModel(nn.Module):
 
 models: dict[str, Callable[..., nn.Module]] = {
     "dummy": DummyModel,
-    "resnet18": torchvision.models.resnet18,
+    "resnet18": torchvision.models.resnet18,  # default model
     "resnet34": torchvision.models.resnet34,
     "resnet50": torchvision.models.resnet50,
     "resnet101": torchvision.models.resnet101,
@@ -200,7 +200,7 @@ class Args:
     )
     """Name for the wandb run."""
 
-    wandb_run_id: str | None = JOB_ID + (
+    wandb_run_id: str = JOB_ID + (
         f"_step{_step}" if (_step := int(os.environ.get("SLURM_STEP_ID", "0"))) > 0 else ""
     )
     """Unique ID for the Weights & Biases run.
@@ -216,18 +216,14 @@ class Args:
 def main():
     # Use an argument parser so we can pass hyperparameters from the command line.
     # You can use plain argparse if you like. Simple-parsing is an extension of argparse for dataclasses.
-    args: Args = simple_parsing.parse(
-        Args,
-        # Arguments can be passed with either --arg_name or --arg-name
-        add_option_string_dash_variants=simple_parsing.DashVariant.UNDERSCORE_AND_DASH,
-    )
-    if not (_checkpoints_symlink := Path("checkpoints")).exists():
+    args: Args = simple_parsing.parse(Args)
+
+    # Create a checkpoints directory in $SCRATCH and symlink it so it appears in the current directory.
+    if not (_checkpoints_dir := Path("checkpoints")).exists():
         _checkpoints_dir_in_scratch = SCRATCH / "checkpoints"
         _checkpoints_dir_in_scratch.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            f"Creating a symlink from {_checkpoints_symlink} --> {_checkpoints_dir_in_scratch}"
-        )
-        _checkpoints_symlink.symlink_to(_checkpoints_dir_in_scratch)
+        logger.info(f"Creating a symlink from {_checkpoints_dir} --> {_checkpoints_dir_in_scratch}")
+        _checkpoints_dir.symlink_to(_checkpoints_dir_in_scratch)
 
     if args.checkpoint_dir is None:
         # Use the run name or run_id as the checkpoint folder by default if unset.
@@ -236,18 +232,19 @@ def main():
             SCRATCH / "checkpoints" / (args.wandb_run_name or args.wandb_run_id or JOB_ID)
         )
 
-    # Check that the GPU is available
     assert torch.cuda.is_available() and torch.cuda.device_count() > 0
     assert torch.distributed.is_available()
     # https://docs.pytorch.org/tutorials/beginner/ddp_series_multigpu.html#constructing-the-process-group
     # Default timeout is 30 minutes. Reducing the timeout here, so the job fails quicker if there's
     # a communication problem between nodes.
+    # NOTE: Since preparing imagenet on each node can take about 12-15 minutes on the Mila cluster,
+    # we set the timeout to 20 minutes here.
     torch.cuda.set_device(LOCAL_RANK)
     torch.distributed.init_process_group(
         backend="nccl",
         rank=RANK,
         world_size=WORLD_SIZE,
-        timeout=datetime.timedelta(minutes=5),
+        timeout=datetime.timedelta(minutes=20),
     )
     is_master = RANK == 0
 
@@ -311,7 +308,7 @@ def main():
     test_sampler = DistributedSampler(
         dataset=test_dataset, shuffle=False, num_replicas=WORLD_SIZE, rank=RANK
     )
-    # TODO: make sure that the dataloader state is restored properly.
+    # TODO: make sure that the dataloader workers random state is restored properly.
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
@@ -342,10 +339,10 @@ def main():
         # Note: epoch_0 in this case is the initial checkpoint before any training.
         # epoch_1 is after one epoch of training, etc.
         latest_checkpoint = max(previous_checkpoints, key=lambda p: int(p.stem.split("_")[-1]))
-        _checkpoint_num_epochs_done, step, num_samples = load_checkpoint(
+        _num_epochs_done, step, num_samples = load_checkpoint(
             latest_checkpoint, model=model, optimizer=optimizer, device=device
         )
-        starting_epoch = _checkpoint_num_epochs_done
+        starting_epoch = _num_epochs_done
         total_updates = step
         total_num_samples = num_samples
         logger.debug(
@@ -406,7 +403,6 @@ def main():
         logger.debug(f"Starting epoch {epoch}/{args.epochs}")
         # Important so each epoch uses a different ordering for the training samples.
         train_sampler.set_epoch(epoch)
-
         model.train()
 
         # Using a progress bar when in an interactive terminal. It also shows the throughput in samples/second.
@@ -516,15 +512,19 @@ def setup_wandb(
     with goes_first(is_master):
         run = wandb.init(
             project=args.wandb_project,
+            # if None, wandb will use a random name.
             name=args.wandb_run_name if args.wandb_run_name else None,
-            id=args.wandb_run_id
-            if args.wandb_run_id
-            else None,  # TODO: need the same run id in all tasks!
+            id=args.wandb_run_id,
             # It's a good idea to log the SLURM environment variables to wandb.
             config=(
                 dataclasses.asdict(args)
                 | {k: v for k, v in os.environ.items() if k.startswith("SLURM_")}
-                | {"effective_batch_size": effective_batch_size}
+                | dict(
+                    effective_batch_size=effective_batch_size,
+                    WORLD_SIZE=WORLD_SIZE,
+                    MASTER_ADDR=MASTER_ADDR,
+                    MASTER_PORT=MASTER_PORT,
+                )
             ),
             group=args.wandb_group,
             # Use the new "shared" mode to log system utilization metrics from all tasks in the job:
@@ -575,7 +575,7 @@ def training_step(
 
     optimizer.zero_grad()
     # nn.DistributedDataParallel automatically averages the gradients across devices.
-    local_loss.backward(retain_graph=True)  # BUG: This causes cuda OOM issues!
+    local_loss.backward()
     optimizer.step()
 
     # Calculate some metrics
@@ -607,7 +607,7 @@ def training_step(
 
 
 # BUG: Missing the torch.no_grad() here leads to an OOM during evaluation!
-# @torch.no_grad()
+@torch.no_grad()
 def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.device):
     model.eval()
 
@@ -708,20 +708,16 @@ def make_datasets(
         transforms.ToDtype(torch.float32, scale=True),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     )
-    # todo: This takes ~12-15 minutes on the Mila cluster, which is higher than the timeout value for this
-    # torch distributed process group. Either we enforce that the prepare_data script has to be called in advance
-    # on each node, or we increase the process group timeout, or we make a process group just for this op with a higher timeout
-    # value?
-    group = torch.distributed.new_group(
-        backend="nccl", timeout=datetime.timedelta(minutes=20), group_desc="data_prep"
-    )
-    with goes_first(LOCAL_RANK == 0, group=group):
+    # This takes ~12-15 minutes on the Mila cluster. The timeout value for the distributed process group
+    # needs to be higher than this to avoid a timeout.
+    # TODO: Could we setup a new process group just for this operation, with a high enough timeout,
+    # that way the default process group can keep a short timeout value to waste less time in case of errors.
+    with goes_first(LOCAL_RANK == 0):
         from prepare_data import prepare_imagenet
 
         logging.info(f"Preparing the ImageNet dataset in {path}")
         prepare_imagenet(path)
         logging.info(f"Done preparing the ImageNet dataset in {path}")
-    torch.distributed.destroy_process_group(group)
 
     train_dataset = ImageNet(root=path, transform=train_transforms, split="train")
     valid_dataset = ImageNet(root=path, transform=test_transforms, split="train")

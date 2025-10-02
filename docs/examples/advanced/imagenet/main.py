@@ -601,6 +601,10 @@ def training_step(
     torch.distributed.reduce(n_samples, dst=0, op=ReduceOp.SUM)
     accuracy = n_correct_predictions / n_samples
 
+    # FIXME: .item() is called every time regardless of log level, causing an unnecessay cuda sync!
+    # Using lazy formatting would only call .item() when necessary!
+    # logger.debug("(local) Loss: %.2f Accuracy: %.2f", local_loss, local_accuracy)
+    # logger.debug("Average Loss: %.2f Accuracy: %.2%", loss, accuracy)
     logger.debug(f"(local) Loss: {local_loss.item():.2f} Accuracy: {local_accuracy.item():.2%}")
     logger.debug(f"Average Loss: {loss.item():.2f} Accuracy: {accuracy.item():.2%}")
     return loss, accuracy, n_samples

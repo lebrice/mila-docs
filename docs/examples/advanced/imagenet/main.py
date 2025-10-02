@@ -5,9 +5,10 @@
 - Wandb logging
 - Checkpointing
 - Profiling with the PyTorch profiler and tensorboard
+- Good sanity checks
 
 # Potential Improvements - to be added as an exercise! 😉
-- Use Automatic Mixed Precision (AMP) to take advantage of the hardware capabilities
+- Use Automatic Mixed Precision (AMP) to speed up training by better taking advantage of the hardware capabilities
 - Use a larger model from HuggingFace or change the dataset from ImageNet to a language dataset from HuggingFace
 - Use FSDP to train a larger model that doesn't fit inside a single GPU
 """
@@ -445,7 +446,6 @@ def main():
             samples_per_sec = n_samples / dt
             t = new_t
 
-            # BUG: This condition doesn't seem to work properly!
             if is_master and (batch_index == 0 or ((batch_index + 1) % args.logging_interval) == 0):
                 # update the progress bar text.
                 _loss = loss.item()
@@ -606,7 +606,6 @@ def training_step(
     return loss, accuracy, n_samples
 
 
-# BUG: Missing the torch.no_grad() here leads to an OOM during evaluation!
 @torch.no_grad()
 def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.device):
     model.eval()

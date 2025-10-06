@@ -6,9 +6,9 @@
 - Checkpointing
 - Profiling with the PyTorch profiler and tensorboard
 - Good sanity checks
+- Automatic mixed precision (AMP) support
 
 # Potential Improvements - to be added as an exercise! 😉
-- Use Automatic Mixed Precision (AMP) to speed up training by better taking advantage of the hardware capabilities
 - Use a larger model from HuggingFace or change the dataset from ImageNet to a language dataset from HuggingFace
 - Use FSDP to train a larger model that doesn't fit inside a single GPU
 """
@@ -288,6 +288,8 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
+    # https://docs.pytorch.org/tutorials/recipes/recipes/amp_recipe.html
+    scaler = torch.amp.grad_scaler.GradScaler(enabled=args.use_amp)
 
     # Setup the dataset.
     train_dataset, valid_dataset, test_dataset = make_datasets(
@@ -438,7 +440,13 @@ def main():
             x, y = batch
 
             loss, accuracy, n_samples = training_step(
-                model, x, y, optimizer, is_master=is_master, verbose_logging=args.verbose >= 2
+                model,
+                x,
+                y,
+                optimizer,
+                scaler=scaler,
+                is_master=is_master,
+                verbose_logging=args.verbose >= 2,
             )
 
             epoch_loss += loss
@@ -569,20 +577,30 @@ def training_step(
     x: Tensor,
     y: Tensor,
     optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.grad_scaler.GradScaler | None = None,
     is_master: bool = False,
     verbose_logging: bool = False,
 ):
-    # Forward pass
-    logits: Tensor = model(x)
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=scaler is not None):
+        # Forward pass
+        logits: Tensor = model(x)
 
-    local_loss = F.cross_entropy(logits, y, reduction="mean")
-    # FIXME: Causes a sync in the middle of the training step! (Not as large an impact as one might expect, maybe 1-2%)
+        local_loss = F.cross_entropy(logits, y, reduction="mean")
+    # FIXME: Causes a sync in the middle of the training step!
+    # (In this example here, this has only a small impact on performance maybe 1-2%,
+    # but depending on your setup this kind of overhead could be more significant.)
     logger.debug(f"Local average loss: {local_loss.item():.2f}")
 
+    if scaler is not None:
+        # https://docs.pytorch.org/tutorials/recipes/recipes/amp_recipe.html#all-together-automatic-mixed-precision
+        scaler.scale(local_loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+    else:
+        # nn.DistributedDataParallel automatically averages the gradients across devices.
+        local_loss.backward()
+        optimizer.step()
     optimizer.zero_grad()
-    # nn.DistributedDataParallel automatically averages the gradients across devices.
-    local_loss.backward()
-    optimizer.step()
 
     # Calculate some metrics
 

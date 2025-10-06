@@ -170,6 +170,9 @@ class Args:
     the model can overfit on a small number of samples.
     """
 
+    limit_val_samples: int = 0
+    """ If > 0, limit the number of validation samples to this value."""
+
     num_workers: int = int(os.environ.get("SLURM_CPUS_PER_TASK", len(os.sched_getaffinity(0))))
     """Number of dataloader workers."""
 
@@ -298,6 +301,8 @@ def main():
         train_dataset = torch.utils.data.Subset(
             train_dataset, list(range(args.limit_train_samples))
         )
+    if args.limit_val_samples:
+        valid_dataset = torch.utils.data.Subset(valid_dataset, list(range(args.limit_val_samples)))
 
     # Restricts data loading to a subset of the dataset exclusive to the current process
     train_sampler = DistributedSampler(
@@ -446,6 +451,7 @@ def main():
             samples_per_sec = n_samples / dt
             t = new_t
 
+            # Perform some logging, but only on the first task, and only every `logging_interval` batches.
             if is_master and (batch_index == 0 or ((batch_index + 1) % args.logging_interval) == 0):
                 # update the progress bar text.
                 _loss = loss.item()

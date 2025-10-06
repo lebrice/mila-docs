@@ -6,7 +6,7 @@
     "configurations": [
         {
             // Loosely based on https://medium.com/@franoisponchon/pytorch-ddp-debugging-in-vscode-4fb162eba07e
-            "name": "Debug job: Single-node (torchrun)",
+            "name": "Debug job with torchrun (Single-node)",
             "type": "debugpy",
             "request": "launch",
             // we launch a module...
@@ -22,7 +22,22 @@
             "justMyCode": false
         },
         {
-            "name": "Debug job: Launch with srun (you then use \"attach debugger\" for each task)",
+            "name": "Attach debugger to a running task/node",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "${input:NodeHostname}",
+                "port": "${input:DebugpyPort}"
+            },
+            "justMyCode": false,
+            "presentation": {
+                "hidden": false,
+                "group": "lower",
+                "order": 0
+            }
+        },
+        {
+            "name": "Launch with srun (use \"attach debugger\" for each task)",
             "request": "launch",
             /// wacky, but it works. We just want to run this command in a bash terminal.
             "type": "node-terminal",
@@ -31,7 +46,7 @@
             // VSCode shows this in red with jsonc(261) error, but you can safely ignore that (I don't know how to turn off the error..)
             "command": "srun --ntasks=${input:NumGPUs} bash -c '\
                 DEBUGPY_PORT=$(expr 20000 + $(echo -n $SLURM_JOB_ID | tail -c 4) + $SLURM_LOCALID) && \
-                echo \"Task $SLURM_PROCID on node $SLURMD_NODENAME is waiting until the vscode debugger is attached to host $SLURMD_NODENAME at port $DEBUGPY_PORT\" && \
+                echo \"Task $SLURM_PROCID on node $SLURMD_NODENAME is waiting for you to connect the vscode debugger with the <attach to running task> action with host $SLURMD_NODENAME at port $DEBUGPY_PORT\" && \
                 uv run debugpy --listen 0.0.0.0:$DEBUGPY_PORT --wait-for-client ${file} ${input:pickArgs}'",
             ///
             "presentation": {
@@ -41,7 +56,7 @@
             }
         },
         {
-            "name": "Debug job: Launch with srun+torchrun (you then use \"attach debugger\" for each node)",
+            "name": "Launch with srun+torchrun (use \"attach debugger\" for each node)",
             "request": "launch",
             /// wacky, not using nodejs here, but this allows us to just run commands in the integrated (bash) terminal.
             "type": "node-terminal",
@@ -54,7 +69,7 @@
                 MASTER_ADDR=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1) && \
                 MASTER_PORT=$(expr 10000 + $(echo -n $SLURM_JOB_ID | tail -c 4)) && \
                 WORLD_SIZE=${input:NumGPUs} && \
-                echo \"Task $SLURM_PROCID on node $SLURMD_NODENAME is waiting until the vscode debugger is attached to host $SLURMD_NODENAME at port $DEBUGPY_PORT\" && \
+                echo \"Task $SLURM_PROCID on node $SLURMD_NODENAME is waiting until you attach vscode debugger to host $SLURMD_NODENAME at port $DEBUGPY_PORT using the <attach debugger to task> action.\" && \
                 uv run debugpy --listen 0.0.0.0:$DEBUGPY_PORT --wait-for-client -m \
                 torch.distributed.run --node-rank=$SLURM_NODEID --nnodes=${input:NumNodes} \
                 --master-addr=$MASTER_ADDR --master-port=$MASTER_PORT --nproc-per-node=gpu \
@@ -64,21 +79,6 @@
                 "hidden": false,
                 "group": "lower",
                 "order": 2
-            }
-        },
-        {
-            "name": "Debug job: Attach debugger to a running task/node",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "${input:NodeHostname}",
-                "port": "${input:DebugpyPort}"
-            },
-            "justMyCode": false,
-            "presentation": {
-                "hidden": false,
-                "group": "lower",
-                "order": 0
             }
         },
     ],

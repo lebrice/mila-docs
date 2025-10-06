@@ -193,8 +193,8 @@ class Args:
 
     # IDEA: Can we instead use a logging interval in seconds?
     # One problem is that this would make it hard to compare metric values at the same step.
-    logging_interval: int = 100
-    """Interval (in batches) between logging training metrics."""
+    logging_interval: int = 5
+    """Interval (in batches) between logging of training metrics to wandb or to the output file."""
 
     use_amp: bool = False
     """If True, use automatic mixed precision (AMP) for training."""
@@ -356,7 +356,7 @@ def main():
         starting_epoch = _num_epochs_done
         total_updates = step
         total_num_samples = num_samples
-        logger.debug(
+        logger.info(
             f"Resuming training from epoch {starting_epoch} (step {step}, {total_num_samples} total samples)"
         )
     else:
@@ -364,7 +364,7 @@ def main():
         total_updates = 0
         total_num_samples = 0
         args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug("Starting training from scratch")
+        logger.info("Starting training from scratch")
 
     # Initialize wandb logging.
     setup_wandb(
@@ -415,6 +415,10 @@ def main():
         # Important so each epoch uses a different ordering for the training samples.
         train_sampler.set_epoch(epoch)
         model.train()
+        # if epoch == 1:
+        #     if wandb.run:
+        #         wandb.run.mark_preempting()
+        #     raise NotImplementedError("Intentional error to test wandb run resuming.")
 
         # Using a progress bar when in an interactive terminal. It also shows the throughput in samples/second.
         # If we're going to enable verbose logging within an epoch (for example to help identify issues),
@@ -424,7 +428,7 @@ def main():
         assert isinstance(train_dataloader.batch_size, int)
         progress_bar = pbar_type(
             train_dataloader,
-            desc=f"Train epoch {epoch}/{args.epochs - 1}",
+            desc=f"Train epoch {epoch + 1}/{args.epochs}",
             # Don't use a progress bar if outputting to a slurm output file or when not in task 0
             disable=(not sys.stdout.isatty() or not is_master),
             unit_scale=False if pbar_type is tqdm.rich.tqdm_rich else effective_batch_size,
@@ -557,14 +561,15 @@ def setup_wandb(
             # It would be *really* nice to use this resume feature, but this is new
             # at the time of writing (2025-09) and needs to be enabled for your project
             # by contacting wandb support.
-            resume_from=(
-                f"{args.wandb_run_id}?_step={total_updates}"
-                if previous_checkpoints and args.wandb_run_id
-                else None
-            ),
-            resume=None if previous_checkpoints and args.wandb_run_id else "allow",
+            # resume_from=(
+            #     f"{args.wandb_run_id}?_step={total_updates}"
+            #     if previous_checkpoints and args.wandb_run_id
+            #     else None
+            # ),
+            # resume=None if previous_checkpoints and args.wandb_run_id else "allow",
             # Use this for the time being instead:
-            # resume="must" if previous_checkpoints else "allow",
+            resume="allow",  # adds data to the end of the run (I think).
+            # resume="must",  # ignores all the log calls until the end of the run.
         )
         # Wait a bit to make sure the run is created properly in wandb by the first task before other workers try to
         # also create it. Otherwise we can get a 409 error from the wandb server.

@@ -199,10 +199,10 @@ class Args:
     use_amp: bool = False
     """If True, use automatic mixed precision (AMP) for training."""
 
-    wandb_run_name: str | None = JOB_ID + (
+    run_name: str | None = JOB_ID + (
         f"_step{_step}" if (_step := int(os.environ.get("SLURM_STEP_ID", "0"))) > 0 else ""
     )
-    """Name for the wandb run."""
+    """Name for the run (in wandb and in tensorboard)."""
 
     wandb_run_id: str = JOB_ID + (
         f"_step{_step}" if (_step := int(os.environ.get("SLURM_STEP_ID", "0"))) > 0 else ""
@@ -233,7 +233,7 @@ def main():
         # Use the run name or run_id as the checkpoint folder by default if unset.
         # This makes it so the names in wandb and the names in tensorboard line up nicely.
         args.checkpoint_dir = (
-            SCRATCH / "checkpoints" / (args.wandb_run_name or args.wandb_run_id or JOB_ID)
+            SCRATCH / "checkpoints" / (args.run_name or args.wandb_run_id or JOB_ID)
         )
 
     assert torch.cuda.is_available() and torch.cuda.device_count() > 0
@@ -519,7 +519,7 @@ def setup_wandb(
         run = wandb.init(
             project=args.wandb_project,
             # if None, wandb will use a random name.
-            name=args.wandb_run_name if args.wandb_run_name else None,
+            name=args.run_name if args.run_name else None,
             id=args.wandb_run_id,
             # It's a good idea to log the SLURM environment variables to wandb.
             config=(

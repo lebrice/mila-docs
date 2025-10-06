@@ -278,6 +278,7 @@ def main():
     # https://docs.pytorch.org/tutorials/beginner/ddp_series_multigpu.html#multi-gpu-training-with-ddp
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if args.compile:
+        # TODO: Try different torch.compile modes, see how this affects performance!
         model = torch.compile(model)
     # Wrap the model with DistributedDataParallel
     # (See https://pytorch.org/docs/stable/nn.html#torch.nn.parallel.DistributedDataParallel)
@@ -289,7 +290,9 @@ def main():
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
     # https://docs.pytorch.org/tutorials/recipes/recipes/amp_recipe.html
-    scaler = torch.amp.grad_scaler.GradScaler(enabled=args.use_amp)
+    scaler = None
+    if args.use_amp:
+        scaler = torch.amp.grad_scaler.GradScaler(enabled=args.use_amp)
 
     # Setup the dataset.
     train_dataset, valid_dataset, test_dataset = make_datasets(
@@ -581,7 +584,9 @@ def training_step(
     is_master: bool = False,
     verbose_logging: bool = False,
 ):
-    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=scaler is not None):
+    with torch.autocast(
+        device_type="cuda", dtype=torch.bfloat16, enabled=scaler is not None and scaler.is_enabled()
+    ):
         # Forward pass
         logits: Tensor = model(x)
 

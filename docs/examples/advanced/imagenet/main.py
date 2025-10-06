@@ -415,10 +415,6 @@ def main():
         # Important so each epoch uses a different ordering for the training samples.
         train_sampler.set_epoch(epoch)
         model.train()
-        # if epoch == 1:
-        #     if wandb.run:
-        #         wandb.run.mark_preempting()
-        #     raise NotImplementedError("Intentional error to test wandb run resuming.")
 
         # Using a progress bar when in an interactive terminal. It also shows the throughput in samples/second.
         # If we're going to enable verbose logging within an epoch (for example to help identify issues),
@@ -568,8 +564,7 @@ def setup_wandb(
             # ),
             # resume=None if previous_checkpoints and args.wandb_run_id else "allow",
             # Use this for the time being instead:
-            resume="allow",  # adds data to the end of the run (I think).
-            # resume="must",  # ignores all the log calls until the end of the run.
+            resume="allow",
         )
         # Wait a bit to make sure the run is created properly in wandb by the first task before other workers try to
         # also create it. Otherwise we can get a 409 error from the wandb server.

@@ -193,7 +193,7 @@ class Args:
 
     # IDEA: Can we instead use a logging interval in seconds?
     # One problem is that this would make it hard to compare metric values at the same step.
-    logging_interval: int = 5
+    logging_interval: int = 50
     """Interval (in batches) between logging of training metrics to wandb or to the output file."""
 
     use_amp: bool = False
@@ -547,7 +547,7 @@ def setup_wandb(
             # Use the new "shared" mode to log system utilization metrics from all tasks in the job:
             # TODO: Make it easier to turn off wandb for successive debugging in the same interactive job with the vscode debugger.
             settings=wandb.Settings(
-                mode="shared",
+                mode=os.environ.get("WANDB_MODE", "shared"),  # type: ignore
                 x_primary=is_master,
                 x_label=f"task_{RANK}",
                 x_stats_gpu_device_ids=[LOCAL_RANK],

@@ -185,8 +185,8 @@ class Args:
     model_name: str = simple_parsing.choice(*models.keys(), default="resnet18")
     """Which model function to use."""
 
-    compile: bool = False
-    """If true, use torch.compile to compile the model."""
+    compile: str = ""
+    """If set, use torch.compile to compile the model with the given string as the "mode" argument."""
 
     verbose: int = simple_parsing.field(alias="-v", action="count", default=0)
     """Increase logging verbosity (can be specified multiple times)."""
@@ -279,7 +279,7 @@ def main():
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if args.compile:
         # TODO: Try different torch.compile modes, see how this affects performance!
-        model = torch.compile(model)
+        model = torch.compile(model, mode=args.compile)
     # Wrap the model with DistributedDataParallel
     # (See https://pytorch.org/docs/stable/nn.html#torch.nn.parallel.DistributedDataParallel)
     model = nn.parallel.DistributedDataParallel(

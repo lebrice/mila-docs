@@ -292,7 +292,9 @@ def main():
     # https://docs.pytorch.org/tutorials/recipes/recipes/amp_recipe.html
     scaler = None
     if args.use_amp:
-        scaler = torch.amp.grad_scaler.GradScaler(enabled=args.use_amp)
+        scaler = torch.amp.grad_scaler.GradScaler(enabled=True)
+        torch.set_float32_matmul_precision("high")
+        logger.info("Using automatic mixed precision (AMP) with bfloat16")
 
     # Setup the dataset.
     train_dataset, valid_dataset, test_dataset = make_datasets(

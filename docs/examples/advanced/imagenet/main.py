@@ -279,6 +279,7 @@ def main():
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     if args.compile:
         # TODO: Try different torch.compile modes, see how this affects performance!
+        torch.set_float32_matmul_precision("high")  # Use TensorFloat32 tensor cores.
         model = torch.compile(model, mode=args.compile)
     # Wrap the model with DistributedDataParallel
     # (See https://pytorch.org/docs/stable/nn.html#torch.nn.parallel.DistributedDataParallel)

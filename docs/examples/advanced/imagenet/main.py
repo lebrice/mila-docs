@@ -584,7 +584,14 @@ def setup_wandb(
 
     # Specify the step metric (x-axis) and the metric to log against it (y-axis)
     run.define_metric("train/*", step_metric="updates")
-    run.define_metric("valid/*", step_metric="epoch")
+    run.define_metric("val/*", step_metric="epoch")
+    # https://docs.wandb.ai/guides/track/log/log-summary/#customize-summary-metrics
+    run.define_metric("train/samples_per_sec", summary="max")
+    run.define_metric("train/samples_per_sec", summary="mean")
+    run.define_metric("train/samples_per_sec", summary="min")
+    run.define_metric("val/samples_per_sec", summary="max")
+    run.define_metric("val/samples_per_sec", summary="mean")
+    run.define_metric("val/samples_per_sec", summary="min")
 
 
 def training_step(

@@ -182,7 +182,7 @@ class Args:
     val_seed: int = 0
     """Random seed used to create the train/validation split."""
 
-    model_name: str = simple_parsing.choice(*models.keys(), default="resnet18")
+    model_name: str = simple_parsing.choice(*models.keys(), default="vit_b_32")
     """Which model function to use."""
 
     compile: str = ""
@@ -404,7 +404,7 @@ def main():
         profile_memory=True,
         # Warning: This can be a bit too verbose while debugging. Only enable this if you really need it.
         # with_stack=True if "debugpy" not in sys.modules else True,
-        with_stack=False,
+        with_stack=True if args.verbose >= 3 else False,
         with_flops=True,
         with_modules=True,
     )
@@ -412,6 +412,10 @@ def main():
     ###################
     ## Training loop ##
     ###################
+
+    # Used at the end to display overall samples per second.
+    t0 = time.time()
+    starting_num_samples = total_num_samples
 
     for epoch in range(starting_epoch, args.epochs):
         logger.debug(f"Starting epoch {epoch}/{args.epochs}")
@@ -517,7 +521,12 @@ def main():
             )
 
     torch.distributed.destroy_process_group()
-    print("Done!")
+    total_time = t0 - time.time()
+    overall_samples = int(total_num_samples) - starting_num_samples
+    overall_sps = overall_samples / total_time
+    if wandb.run:
+        wandb.run.summary["overall_train_samples_per_sec"] = overall_sps
+    print(f"Done in {total_time:.1f} seconds, with {overall_sps:.1f} images/second")
 
 
 def setup_wandb(

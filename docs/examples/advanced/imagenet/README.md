@@ -26,13 +26,10 @@ uv sync
 In another terminal, run this:
 
 ```bash
-uvx --with=torch-tb-profiler tensorboard --logdir $SCRATCH/checkpoints
+mkdir -p $SCRATCH/checkpoints
+uv run tensorboard --logdir $SCRATCH/checkpoints
 ```
 
 
-## TODOs
-
-- [ ] This is crashing with a CUDA OOM error after a few steps, why?
-- [ ] Figure out why the logging to wandb is not working correctly! Why is it logging the loss only once?
 
 

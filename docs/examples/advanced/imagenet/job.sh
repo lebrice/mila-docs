@@ -6,6 +6,12 @@
 #SBATCH --tmp=200G  # We need 200GB of storage on the local disk of each node.
 #SBATCH --time=02:00:00
 #SBATCH --output=checkpoints/%j/out.txt
+#SBATCH --signal=B:TERM@300 # tells the controller to send SIGTERM to the job 5
+#                           # min before its time ends to give it a chance for
+#                           # better cleanup. If you cancel the job manually,
+#                           # make sure that you specify the signal as TERM like
+#                           # so `scancel --signal=TERM <jobid>`.
+#                           # https://dhruveshp.com/blog/2021/signal-propagation-on-slurm/
 
 set -e  # exit on error.
 echo "Date:     $(date)"

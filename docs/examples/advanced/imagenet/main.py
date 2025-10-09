@@ -472,15 +472,22 @@ def main():
             samples_per_sec = n_samples / dt
             t = new_t
 
+            # Move the tensors to CPU so we can log them in the progress bar and to wandb.
             # Perform some logging, but only on the first task, and only every `logging_interval` batches.
-            if is_master and (batch_index == 0 or ((batch_index + 1) % args.logging_interval) == 0):
-                # update the progress bar text.
+            # Extra improvement: Could also only do this if wandb logging is enabled and if the progress bar is enabled.
+            if (
+                is_master
+                and ((wandb.run and not wandb.run.disabled) or (not progress_bar.disable))
+                and (batch_index == 0 or ((batch_index + 1) % args.logging_interval) == 0)
+            ):
+                # TODO: if --limit_train_samples=100_000, the logs in wandb have their last logged metrics
+                # at samples=89_600 (7(updates) * 50(log interval) * 256(batch_size)). It would be nice to
+                # also log metrics at the last batch (when we reach the limit_num_steps) even if batch_index
+                # isnt a multiple of logging interval.
+
                 _loss = loss.item()
                 _accuracy = accuracy.item()
-                progress_bar.set_postfix(
-                    loss=f"{_loss:.3f}",
-                    accuracy=f"{_accuracy:.2%}",
-                )
+                progress_bar.set_postfix(loss=f"{_loss:.3f}", accuracy=f"{_accuracy:.2%}")
                 wandb.log(
                     {
                         "train/loss": _loss,

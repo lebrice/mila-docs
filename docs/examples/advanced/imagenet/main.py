@@ -521,11 +521,12 @@ def main():
             )
 
     torch.distributed.destroy_process_group()
-    total_time = t0 - time.time()
+    total_time = time.time() - t0
     overall_samples = int(total_num_samples) - starting_num_samples
     overall_sps = overall_samples / total_time
     if wandb.run:
         wandb.run.summary["overall_train_samples_per_sec"] = overall_sps
+        wandb.run.finish()
     print(f"Done in {total_time:.1f} seconds, with {overall_sps:.1f} images/second")
 
 

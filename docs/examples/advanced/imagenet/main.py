@@ -119,7 +119,8 @@ class DummyModel(nn.Module):
         self.linear = nn.Linear(1, num_classes)
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.linear(x.flatten(1).mean(1, keepdim=True))
+        mean_of_each_xi = x.flatten(1).mean(1, keepdim=True)
+        return self.linear(mean_of_each_xi)
 
 
 models: dict[str, Callable[..., nn.Module]] = {
@@ -215,6 +216,9 @@ class Args:
     wandb_group: str | None = None
 
     wandb_project: str = "codingtips_profiling_example"
+
+    no_wandb: bool = False
+    """When set, disables wandb logging."""
 
 
 def main():
@@ -558,9 +562,8 @@ def setup_wandb(
             ),
             group=args.wandb_group,
             # Use the new "shared" mode to log system utilization metrics from all tasks in the job:
-            # TODO: Make it easier to turn off wandb for successive debugging in the same interactive job with the vscode debugger.
             settings=wandb.Settings(
-                mode=os.environ.get("WANDB_MODE", "shared"),  # type: ignore
+                mode="disabled" if args.no_wandb else os.environ.get("WANDB_MODE", "shared"),  # type: ignore
                 x_primary=is_master,
                 x_label=f"task_{RANK}",
                 x_stats_gpu_device_ids=[LOCAL_RANK],

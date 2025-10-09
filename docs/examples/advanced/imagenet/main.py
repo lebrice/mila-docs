@@ -358,14 +358,14 @@ def main():
         )
         starting_epoch = _num_epochs_done
         total_updates = step
-        total_num_samples = num_samples
+        total_samples = num_samples
         logger.info(
-            f"Resuming training from epoch {starting_epoch} (step {step}, {total_num_samples} total samples)"
+            f"Resuming training from epoch {starting_epoch} (step {step}, {total_samples} total samples)"
         )
     else:
         starting_epoch = 0
         total_updates = 0
-        total_num_samples = 0
+        total_samples = 0
         args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Starting training from scratch")
 
@@ -415,7 +415,7 @@ def main():
 
     # Used at the end to display overall samples per second.
     t0 = time.time()
-    starting_num_samples = total_num_samples
+    starting_num_samples = total_samples
 
     for epoch in range(starting_epoch, args.epochs):
         logger.debug(f"Starting epoch {epoch}/{args.epochs}")
@@ -461,7 +461,7 @@ def main():
 
             epoch_loss += loss
             total_updates += 1
-            total_num_samples += n_samples
+            total_samples += n_samples
 
             # Simple training speed calculation in samples/sec using the effective batch size.
             new_t = time.perf_counter()
@@ -485,7 +485,7 @@ def main():
                         "train/samples_per_sec": samples_per_sec,
                         "epoch": epoch,
                         "updates": total_updates,
-                        "samples": total_num_samples,
+                        "samples": total_samples,
                     }
                 )
         progress_bar.close()
@@ -517,12 +517,12 @@ def main():
                 device=device,
                 epoch=epoch,
                 step=total_updates,
-                num_samples=int(total_num_samples),
+                num_samples=int(total_samples),
             )
 
     torch.distributed.destroy_process_group()
     total_time = time.time() - t0
-    overall_samples = int(total_num_samples) - starting_num_samples
+    overall_samples = int(total_samples) - starting_num_samples
     overall_sps = overall_samples / total_time
     if wandb.run:
         wandb.run.summary["overall_train_samples_per_sec"] = overall_sps

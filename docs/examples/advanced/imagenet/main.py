@@ -119,8 +119,8 @@ class DummyModel(nn.Module):
         self.linear = nn.Linear(1, num_classes)
 
     def forward(self, x: Tensor) -> Tensor:
-        mean_of_each_xi = x.flatten(1).mean(1, keepdim=True)
-        return self.linear(mean_of_each_xi)
+        mean_of_each_xi = x.flatten(1).mean(1, keepdim=True)  # [batch_size, 1]
+        return self.linear(mean_of_each_xi)  # [batch_size, num_classes]
 
 
 models: dict[str, Callable[..., nn.Module]] = {
@@ -459,8 +459,7 @@ def main():
                 y,
                 optimizer,
                 scaler=scaler,
-                is_master=is_master,
-                verbose_logging=args.verbose >= 2,
+                batch_index=batch_index,
             )
 
             epoch_loss += loss
@@ -534,78 +533,13 @@ def main():
     print(f"Done in {total_time:.1f} seconds, with {overall_sps:.1f} images/second")
 
 
-def setup_wandb(
-    args: Args, effective_batch_size: int, previous_checkpoints: list[Path], total_updates: int
-):
-    # Normally you would only do this in the first task (rank 0), but here we do it in all tasks
-    # using the new "shared" feature of wandb. This makes it much easier to track the GPU util of
-    # all gpus on all nodes in the job.
-    # See this link for more info:
-    # - https://docs.wandb.ai/guides/track/log/distributed-training/#track-all-processes-to-a-single-run
-    is_master = RANK == 0
-    with goes_first(is_master):
-        run = wandb.init(
-            project=args.wandb_project,
-            # if None, wandb will use a random name.
-            name=args.run_name if args.run_name else None,
-            id=args.wandb_run_id,
-            # It's a good idea to log the SLURM environment variables to wandb.
-            config=(
-                dataclasses.asdict(args)
-                | {k: v for k, v in os.environ.items() if k.startswith("SLURM_")}
-                | dict(
-                    effective_batch_size=effective_batch_size,
-                    WORLD_SIZE=WORLD_SIZE,
-                    MASTER_ADDR=MASTER_ADDR,
-                    MASTER_PORT=MASTER_PORT,
-                )
-            ),
-            group=args.wandb_group,
-            # Use the new "shared" mode to log system utilization metrics from all tasks in the job:
-            settings=wandb.Settings(
-                mode="disabled" if args.no_wandb else os.environ.get("WANDB_MODE", "shared"),  # type: ignore
-                x_primary=is_master,
-                x_label=f"task_{RANK}",
-                x_stats_gpu_device_ids=[LOCAL_RANK],
-                x_update_finish_state=not is_master,
-            ),
-            # Resume an existing run with the same ID if the job is restarting after being preempted.
-            # It would be *really* nice to use this resume feature, but this is new
-            # at the time of writing (2025-09) and needs to be enabled for your project
-            # by contacting wandb support.
-            # resume_from=(
-            #     f"{args.wandb_run_id}?_step={total_updates}"
-            #     if previous_checkpoints and args.wandb_run_id
-            #     else None
-            # ),
-            # resume=None if previous_checkpoints and args.wandb_run_id else "allow",
-            # Use this for the time being instead:
-            resume="allow",
-        )
-        # Wait a bit to make sure the run is created properly in wandb by the first task before other workers try to
-        # also create it. Otherwise we can get a 409 error from the wandb server.
-        time.sleep(5)
-
-    # Specify the step metric (x-axis) and the metric to log against it (y-axis)
-    run.define_metric("train/*", step_metric="updates")
-    run.define_metric("val/*", step_metric="epoch")
-    # https://docs.wandb.ai/guides/track/log/log-summary/#customize-summary-metrics
-    run.define_metric("train/samples_per_sec", summary="max")
-    run.define_metric("train/samples_per_sec", summary="mean")
-    run.define_metric("train/samples_per_sec", summary="min")
-    run.define_metric("val/samples_per_sec", summary="max")
-    run.define_metric("val/samples_per_sec", summary="mean")
-    run.define_metric("val/samples_per_sec", summary="min")
-
-
 def training_step(
     model: nn.Module,
     x: Tensor,
     y: Tensor,
     optimizer: torch.optim.Optimizer,
     scaler: torch.amp.grad_scaler.GradScaler | None = None,
-    is_master: bool = False,
-    verbose_logging: bool = False,
+    batch_index: int | None = None,
 ):
     with torch.autocast(
         device_type="cuda", dtype=torch.bfloat16, enabled=scaler is not None and scaler.is_enabled()
@@ -703,11 +637,78 @@ def validation_loop(model: nn.Module, dataloader: DataLoader, device: torch.devi
     return epoch_average_loss.item(), accuracy.item(), num_samples.item()
 
 
+def setup_wandb(
+    args: Args, effective_batch_size: int, previous_checkpoints: list[Path], total_updates: int
+):
+    """Calls `wandb.init` with the appropriate arguments."""
+    # Normally you would only do this in the first task (rank 0), but here we do it in all tasks
+    # using the new "shared" feature of wandb. This makes it much easier to track the GPU util of
+    # all gpus on all nodes in the job.
+    # See this link for more info:
+    # - https://docs.wandb.ai/guides/track/log/distributed-training/#track-all-processes-to-a-single-run
+    is_master = RANK == 0
+    with goes_first(is_master):
+        run = wandb.init(
+            project=args.wandb_project,
+            # if None, wandb will use a random name.
+            name=args.run_name if args.run_name else None,
+            id=args.wandb_run_id,
+            # It's a good idea to log the SLURM environment variables to wandb.
+            config=(
+                dataclasses.asdict(args)
+                | {k: v for k, v in os.environ.items() if k.startswith("SLURM_")}
+                | dict(
+                    effective_batch_size=effective_batch_size,
+                    WORLD_SIZE=WORLD_SIZE,
+                    MASTER_ADDR=MASTER_ADDR,
+                    MASTER_PORT=MASTER_PORT,
+                )
+            ),
+            group=args.wandb_group,
+            # Use the new "shared" mode to log system utilization metrics from all tasks in the job:
+            settings=wandb.Settings(
+                mode="disabled" if args.no_wandb else os.environ.get("WANDB_MODE", "shared"),  # type: ignore
+                x_primary=is_master,
+                x_label=f"task_{RANK}",
+                x_stats_gpu_device_ids=[LOCAL_RANK],
+                x_update_finish_state=not is_master,
+            ),
+            # Resume an existing run with the same ID if the job is restarting after being preempted.
+            # It would be *really* nice to use this resume feature, but this is new
+            # at the time of writing (2025-09) and needs to be enabled for your project
+            # by contacting wandb support.
+            # resume_from=(
+            #     f"{args.wandb_run_id}?_step={total_updates}"
+            #     if previous_checkpoints and args.wandb_run_id
+            #     else None
+            # ),
+            # resume=None if previous_checkpoints and args.wandb_run_id else "allow",
+            # Use this for the time being instead:
+            resume="allow",
+        )
+        # Wait a bit to make sure the run is created properly in wandb by the first task before other workers try to
+        # also create it. Otherwise we can get a 409 error from the wandb server.
+        time.sleep(5)
+
+    # Specify the step metric (x-axis) and the metric to log against it (y-axis)
+    run.define_metric("train/*", step_metric="updates")
+    run.define_metric("val/*", step_metric="epoch")
+    # https://docs.wandb.ai/guides/track/log/log-summary/#customize-summary-metrics
+    run.define_metric("train/samples_per_sec", summary="max")
+    run.define_metric("train/samples_per_sec", summary="mean")
+    run.define_metric("train/samples_per_sec", summary="min")
+    run.define_metric("val/samples_per_sec", summary="max")
+    run.define_metric("val/samples_per_sec", summary="mean")
+    run.define_metric("val/samples_per_sec", summary="min")
+
+
 T = TypeVar("T")
 
 
 def profile_loop(dataloader: Iterable[T], profiler: torch.profiler.profile) -> Iterable[T]:
     """Wraps the dataloader (or progress bar) and calls .step after each batch.
+
+    This is used to save one level of indentation (with profiler block) and to call prof.step() at each step.
 
     Note, this doesn't need to be done at every epoch. It creates files used by tensorboard.
     """

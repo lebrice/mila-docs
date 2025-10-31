@@ -291,7 +291,6 @@ You need to run it once before running the main training script.
    - Use a larger model from HuggingFace or change the dataset from ImageNet to a language dataset from HuggingFace
    - Use FSDP to train a larger model that doesn't fit inside a single GPU
 
-
    Example:
 
    ```bash
@@ -687,7 +686,8 @@ You need to run it once before running the main training script.
 
        # Create the PyTorch profiler with a schedule that will output some traces that can be inspected with tensorboard.
        # https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html#using-profiler-to-analyze-long-running-jobs
-       # To view the traces, run `uvx tensorboard --with=torch_tb_profiler --logdir checkpoints`
+       # To view the traces, run `uv run tensorboard --logdir checkpoints` from inside this project
+       # or `uvx tensorboard --with=torch_tb_profiler --logdir checkpoints` from anywhere.
        profiler = profile(
            schedule=torch.profiler.schedule(wait=2, warmup=2, active=2, repeat=1),
            on_trace_ready=tensorboard_trace_handler(
